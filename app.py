@@ -1,151 +1,121 @@
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
-import pandas as pd
-import bcrypt
-from datetime import datetime
+import requests
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="RPL Practicum Hub", page_icon="🤖", layout="centered")
+st.set_page_config(page_title="RPL Practicum Hub", page_icon="🤖")
 
-# --- BACKEND FUNCTIONS ---
+# PASTE YOUR WEB APP URL HERE
+APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwKxbxD4eQw5cZHx-1_PW1pg67fGYMbTtDawsQwAnv3H9P4_-D9n4Xs6iFwXkdR5Cypvw/exec"
 
-def get_data(worksheet_name):
-    """Fetches data from a specific worksheet using the new connection."""
-    conn = st.connection("gsheets", type=GSheetsConnection)
-    # ttl=0 ensures we don't cache old data; we want fresh data every time
-    return conn.read(worksheet=worksheet_name, ttl=0)
+# --- BACKEND WRAPPER ---
+# We treat your Sheet like a REST API now.
 
-def update_data(df, worksheet_name):
-    """Writes the updated DataFrame back to the sheet."""
-    conn = st.connection("gsheets", type=GSheetsConnection)
-    conn.update(worksheet=worksheet_name, data=df)
-
-def hash_password(password):
-    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-
-def check_password(password, hashed):
-    # Handle cases where hashed might be empty or malformed
+def api_request(payload):
     try:
-        return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
-    except:
-        return False
+        # We must use POST because Apps Script doGet has size limits
+        response = requests.post(APPS_SCRIPT_URL, json=payload)
+        return response.json()
+    except Exception as e:
+        st.error(f"Connection Error: {e}")
+        return None
 
-# --- FRONTEND UI ---
-
+# --- UI ---
 def main():
     st.title("🤖 RPL Practicum Hub")
-    
-    # Initialize Session State
+
     if 'logged_in' not in st.session_state:
         st.session_state.logged_in = False
         st.session_state.username = ""
 
-    # --- LOGIN / REGISTER VIEW ---
+    # LOGIN / REGISTER
     if not st.session_state.logged_in:
         tab1, tab2 = st.tabs(["Login", "Register"])
         
         with tab1:
-            st.subheader("Login")
-            l_user = st.text_input("Username (Name/NIS)", key="l_user")
-            l_pass = st.text_input("Password", type="password", key="l_pass")
-            
-            if st.button("Login", type="primary"):
-                df_users = get_data("users")
-                
-                # Check if user exists
-                user_row = df_users[df_users['username'].astype(str) == l_user]
-                
-                if not user_row.empty:
-                    stored_hash = user_row.iloc[0]['password']
-                    if check_password(l_pass, stored_hash):
-                        st.session_state.logged_in = True
-                        st.session_state.username = l_user
-                        st.success("Login successful!")
-                        st.rerun()
-                    else:
-                        st.error("Wrong password.")
+            l_user = st.text_input("Username (Name/NIS)", key="l")
+            l_pass = st.text_input("Password", type="password", key="lp")
+            if st.button("Login"):
+                res = api_request({"action": "login", "username": l_user, "password": l_pass})
+                if res and res.get('status') == 'success':
+                    st.session_state.logged_in = True
+                    st.session_state.username = l_user
+                    st.success("Welcome!")
+                    st.rerun()
                 else:
-                    st.error("User not found.")
+                    st.error("Invalid credentials.")
 
         with tab2:
-            st.subheader("New Account")
-            r_user = st.text_input("Choose Username", key="r_user")
-            r_pass = st.text_input("Choose Password", type="password", key="r_pass")
-            r_conf = st.text_input("Confirm Password", type="password", key="r_conf")
-            
+            r_user = st.text_input("New Username", key="r")
+            r_pass = st.text_input("New Password", type="password", key="rp")
             if st.button("Register"):
-                df_users = get_data("users")
-                
-                if r_user in df_users['username'].astype(str).values:
-                    st.error("Username taken.")
-                elif r_pass != r_conf:
-                    st.error("Passwords don't match.")
-                elif len(r_pass) < 4:
-                    st.error("Password too short.")
+                res = api_request({"action": "register", "username": r_user, "password": r_pass})
+                if res and res.get('status') == 'success':
+                    st.success("Registered! Please Login.")
+                elif res and res.get('message') == 'User taken':
+                    st.error("Username already taken.")
                 else:
-                    # Add new user
-                    new_user = pd.DataFrame([{
-                        "username": r_user, 
-                        "password": hash_password(r_pass)
-                    }])
-                    updated_users = pd.concat([df_users, new_user], ignore_index=True)
-                    update_data(updated_users, "users")
-                    st.success("Account created! Go to Login.")
+                    st.error("Registration failed.")
 
-    # --- STUDENT DASHBOARD ---
+    # DASHBOARD
     else:
-        st.sidebar.write(f"👤 **{st.session_state.username}**")
+        st.sidebar.write(f"👤 {st.session_state.username}")
         if st.sidebar.button("Logout"):
             st.session_state.logged_in = False
             st.rerun()
 
-        st.markdown("### 📝 My Submission")
-        
-        # Load Submissions
-        df_subs = get_data("submissions")
-        
-        # Find existing row for this user
-        # We ensure username column is string to avoid type mismatches
-        user_sub_idx = df_subs.index[df_subs['username'].astype(str) == st.session_state.username].tolist()
-        
-        existing_data = None
-        if user_sub_idx:
-            existing_data = df_subs.loc[user_sub_idx[0]]
+        # Load existing data on load
+        if 'form_data' not in st.session_state:
+            res = api_request({"action": "get_submission", "username": st.session_state.username})
+            if res and res.get('status') == 'found':
+                st.session_state.form_data = res['data']
+            else:
+                st.session_state.form_data = {}
 
-        with st.form("sub_form"):
-            full_name = st.text_input("Full Name", value=existing_data['full_name'] if existing_data is not None else "")
-            
-            class_opts = ["XI RPL 1", "XI RPL 2", "XI RPL 3"]
-            curr_class = existing_data['class_name'] if existing_data is not None and existing_data['class_name'] in class_opts else "XI RPL 1"
-            class_name = st.selectbox("Class", class_opts, index=class_opts.index(curr_class))
+        data = st.session_state.form_data
 
-            teammates = st.text_area("Teammates (Optional)", value=existing_data['teammates'] if existing_data is not None else "")
+        st.subheader("📝 Your Submission")
+        
+        with st.form("main_form"):
+            full_name = st.text_input("Full Name", value=data.get('full_name', ''))
             
-            colab_link = st.text_input("Colab Link", value=existing_data['colab_link'] if existing_data is not None else "")
-            
-            is_done = st.checkbox("Sudah Beres?", value=(existing_data['status'] == "TRUE") if existing_data is not None else False)
+            cls_opts = ["XI RPL 1", "XI RPL 2", "XI RPL 3"]
+            saved_cls = data.get('class_name', "XI RPL 1")
+            class_name = st.selectbox("Class", cls_opts, index=cls_opts.index(saved_cls) if saved_cls in cls_opts else 0)
 
-            if st.form_submit_button("Save"):
-                new_row = {
-                    "username": st.session_state.username,
-                    "full_name": full_name,
-                    "class_name": class_name,
-                    "teammates": teammates,
-                    "colab_link": colab_link,
-                    "status": "TRUE" if is_done else "FALSE",
-                    "last_updated": str(datetime.now())
-                }
-                
-                if user_sub_idx:
-                    # Update existing row
-                    # We have to update the specific row in the dataframe
-                    df_subs.loc[user_sub_idx[0]] = new_row
+            teammates = st.text_area("Teammates (if any)", value=data.get('teammates', ''))
+            colab_link = st.text_input("Colab Link", value=data.get('colab_link', ''))
+            
+            # Checkbox needs boolean
+            is_done_val = data.get('status')
+            # Handle string 'TRUE'/'FALSE' from sheets or boolean from JSON
+            if isinstance(is_done_val, str):
+                is_done_bool = (is_done_val.lower() == 'true')
+            else:
+                is_done_bool = bool(is_done_val)
+
+            is_done = st.checkbox("Truthful Declaration: 'Sudah Beres'", value=is_done_bool)
+
+            if st.form_submit_button("Save Update"):
+                if not colab_link:
+                    st.error("Link required.")
                 else:
-                    # Append new row
-                    df_subs = pd.concat([df_subs, pd.DataFrame([new_row])], ignore_index=True)
-                
-                update_data(df_subs, "submissions")
-                st.success("Saved!")
+                    payload = {
+                        "action": "update_submission",
+                        "username": st.session_state.username,
+                        "full_name": full_name,
+                        "class_name": class_name,
+                        "teammates": teammates,
+                        "colab_link": colab_link,
+                        "status": is_done
+                    }
+                    with st.spinner("Syncing..."):
+                        api_request(payload)
+                        # Refresh local state
+                        st.session_state.form_data = {
+                            "full_name": full_name, "class_name": class_name, 
+                            "teammates": teammates, "colab_link": colab_link, "status": is_done
+                        }
+                    st.success("Saved!")
 
 if __name__ == "__main__":
     main()
