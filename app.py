@@ -77,8 +77,13 @@ def main():
             st.title("👑 Admin Dashboard")
             st.markdown("### Rekapitulasi Tugas Siswa")
 
-            if st.button("🔄 Refresh Data"):
-                st.rerun()
+            col_search, col_btn = st.columns([4, 1])
+            with col_search:
+                # NEW: Search Bar
+                search_query = st.text_input("🔍 Cari Nama Siswa", placeholder="Ketik nama untuk filter...")
+            with col_btn:
+                if st.button("🔄 Refresh", use_container_width=True):
+                    st.rerun()
 
             with st.spinner("Mengambil data..."):
                 res = api_request({"action": "get_all_data"})
@@ -103,10 +108,19 @@ def main():
                     for i, cls in enumerate(classes):
                         with tabs[i]:
                             df_class = df[df['class_name'] == cls].copy()
+                            
+                            # Apply Search Filter if exists
+                            if search_query:
+                                df_class = df_class[df_class['full_name'].str.contains(search_query, case=False, na=False)]
+
                             if df_class.empty:
-                                st.info("Belum ada data.")
+                                st.info("Tidak ada data ditemukan.")
                             else:
                                 df_disp = df_class[['full_name', 'angkatan', 'colab_filename', 'colab_link', 'status', 'teammates', 'last_updated']]
+                                
+                                # Tip for the user
+                                st.caption("💡 *Klik header kolom (Nama, Status, dll) untuk mengurutkan (Sort).*")
+                                
                                 st.data_editor(
                                     df_disp,
                                     column_config={
@@ -158,10 +172,8 @@ def main():
                     class_name = st.selectbox("Kelas", cls_opts, index=cls_opts.index(curr) if curr in cls_opts else 0)
                 
                 with c_b:
-                    # NEW ANGKATAN DROPDOWN
                     angkatan_opts = ["2025/2026"]
                     curr_angk = data.get('angkatan', "2025/2026")
-                    # Safe index check in case we add more years later
                     idx_angk = angkatan_opts.index(curr_angk) if curr_angk in angkatan_opts else 0
                     angkatan = st.selectbox("Tahun Ajaran (Angkatan)", angkatan_opts, index=idx_angk)
 
@@ -198,7 +210,7 @@ def main():
                             "username": st.session_state.username,
                             "full_name": full_name,
                             "class_name": class_name,
-                            "angkatan": angkatan, # NEW PAYLOAD
+                            "angkatan": angkatan, 
                             "teammates": tm,
                             "colab_link": colab_link,
                             "colab_filename": colab_filename,
