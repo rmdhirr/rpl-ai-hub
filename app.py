@@ -5,8 +5,8 @@ import pandas as pd
 # --- CONFIGURATION ---
 st.set_page_config(page_title="RPL Practicum Hub", page_icon="💻", layout="wide")
 
-# ⚠️ PASTE YOUR APPS SCRIPT URL HERE (From V3 deployment)
-APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzo5YZZmOfO6mCpl4a6sv4HHYwihLNfRxZ-CsHTH8DXnjESXLlyKHRJdt5WCPWeEyeXOQ/exec"
+# ⚠️ PASTE YOUR APPS SCRIPT URL HERE
+APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxvLt_9VQHv0138YITFw3kIsF3QUYSSWCs0fXXl2RAhpgALh4LBFHmaLmCOOu-s9JA7cg/exec"
 
 # --- BACKEND WRAPPER ---
 def api_request(payload):
@@ -30,7 +30,7 @@ def main():
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             st.title("💻 RPL Practicum Hub")
-            st.info("ℹ️ **Perhatian:** Harap ingat Username & Password.")
+            st.info("ℹ️ **Perhatian:** Harap ingat Username & Password!")
             
             tab1, tab2 = st.tabs(["Login", "Register"])
             
@@ -71,7 +71,7 @@ def main():
             st.rerun()
 
         # ------------------------------------------
-        # 👑 ADMIN DASHBOARD (Check Username)
+        # 👑 ADMIN DASHBOARD
         # ------------------------------------------
         if st.session_state.username == "admin": 
             st.title("👑 Admin Dashboard")
@@ -106,11 +106,12 @@ def main():
                             if df_class.empty:
                                 st.info("Belum ada data.")
                             else:
-                                df_disp = df_class[['full_name', 'colab_filename', 'colab_link', 'status', 'teammates', 'last_updated']]
+                                df_disp = df_class[['full_name', 'angkatan', 'colab_filename', 'colab_link', 'status', 'teammates', 'last_updated']]
                                 st.data_editor(
                                     df_disp,
                                     column_config={
                                         "full_name": "Nama",
+                                        "angkatan": "Angkatan",
                                         "colab_filename": "File",
                                         "colab_link": st.column_config.LinkColumn("Link", display_text="Buka 🔗"),
                                         "status": "Status",
@@ -125,7 +126,7 @@ def main():
                 st.error("Gagal koneksi ke server.")
 
         # ------------------------------------------
-        # 🎓 STUDENT DASHBOARD (All other users)
+        # 🎓 STUDENT DASHBOARD
         # ------------------------------------------
         else:
             st.title("📝 Form Pengumpulan")
@@ -145,13 +146,24 @@ def main():
 
             with st.form("student_form"):
                 st.subheader("1. Identitas")
+                
+                # Name (Row 1)
+                full_name = st.text_input("Nama Lengkap", value=data.get('full_name', ''))
+                
+                # Class & Batch (Row 2)
                 c_a, c_b = st.columns(2)
                 with c_a:
-                    full_name = st.text_input("Nama Lengkap", value=data.get('full_name', ''))
-                with c_b:
                     cls_opts = ["XI RPL 1", "XI RPL 2", "XI RPL 3"]
                     curr = data.get('class_name', "XI RPL 1")
                     class_name = st.selectbox("Kelas", cls_opts, index=cls_opts.index(curr) if curr in cls_opts else 0)
+                
+                with c_b:
+                    # NEW ANGKATAN DROPDOWN
+                    angkatan_opts = ["2025/2026"]
+                    curr_angk = data.get('angkatan', "2025/2026")
+                    # Safe index check in case we add more years later
+                    idx_angk = angkatan_opts.index(curr_angk) if curr_angk in angkatan_opts else 0
+                    angkatan = st.selectbox("Tahun Ajaran (Angkatan)", angkatan_opts, index=idx_angk)
 
                 st.caption("👥 **Projectmates (Teman Kelompok)**")
                 teammates_text = st.text_area("List nama teman (satu per baris)", value=data.get('teammates', '').replace(',', '\n'), height=68)
@@ -164,14 +176,11 @@ def main():
                 colab_link = st.text_input("Link Colab", value=data.get('colab_link', ''))
 
                 st.markdown("---")
-                
-                # UPDATED QUESTION HERE
                 st.subheader("3. Konfirmasi")
                 st.write("❓ **Sudah beres mengerjakan belum?**")
                 
                 status_opts = ["Belum Mengerjakan", "Sudah Mengerjakan"]
                 saved_stat = data.get('status', "Belum Mengerjakan")
-                # Handle old 'TRUE' values just in case
                 if str(saved_stat).upper() == 'TRUE': saved_stat = "Sudah Mengerjakan"
                 
                 idx_stat = status_opts.index(saved_stat) if saved_stat in status_opts else 0
@@ -189,6 +198,7 @@ def main():
                             "username": st.session_state.username,
                             "full_name": full_name,
                             "class_name": class_name,
+                            "angkatan": angkatan, # NEW PAYLOAD
                             "teammates": tm,
                             "colab_link": colab_link,
                             "colab_filename": colab_filename,
